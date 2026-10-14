@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   Lightbulb, 
   Flame, 
-  Wind, 
-  Sparkles,
   Refrigerator as FridgeIcon,
   Microwave as MicroIcon
 } from 'lucide-react';

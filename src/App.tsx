@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   INITIAL_DEVICES, 
   INITIAL_ROOMS, 
-  INITIAL_ACTIVITIES 
+  INITIAL_ACTIVITIES,
+  INITIAL_PRESETS
 } from './services/mockData';
 import type { 
   Device, 
@@ -10,7 +11,8 @@ import type {
   RoomId,
   ActivityLog, 
   SystemStats, 
-  ParsedCommandResult 
+  ParsedCommandResult,
+  Preset
 } from './types';
 import { parseCommand } from './services/commandParser';
 import { Header } from './components/Header';
@@ -24,6 +26,8 @@ import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { AuthModal } from './components/auth/AuthModal';
 import { ProfileModal } from './components/auth/ProfileModal';
+import { PresetModal } from './components/PresetModal';
+import { PresetsSection } from './components/PresetsSection';
 import { useAuth } from './context/AuthContext';
 import { useTheme } from './context/ThemeContext';
 import { 
@@ -32,7 +36,8 @@ import {
   Info,
   ShieldAlert,
   LogIn,
-  UserCheck
+  UserCheck,
+  Plus
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -86,6 +91,19 @@ export const App: React.FC = () => {
     }
   });
 
+  const [presets, setPresets] = useState<Preset[]>(() => {
+    try {
+      const saved = localStorage.getItem(`smarthome_presets_${userKey}`);
+      return saved ? JSON.parse(saved) : INITIAL_PRESETS;
+    } catch {
+      return INITIAL_PRESETS;
+    }
+  });
+
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
+  const [presetToEdit, setPresetToEdit] = useState<Preset | null>(null);
+
   // Re-load user data when user changes
   useEffect(() => {
     try {
@@ -100,11 +118,15 @@ export const App: React.FC = () => {
 
       const savedCount = localStorage.getItem(`smarthome_command_count_${userKey}`);
       setCommandCount(savedCount ? parseInt(savedCount, 10) : 24);
+
+      const savedPresets = localStorage.getItem(`smarthome_presets_${userKey}`);
+      setPresets(savedPresets ? JSON.parse(savedPresets) : INITIAL_PRESETS);
     } catch {
       setDevices(INITIAL_DEVICES);
       setRooms(INITIAL_ROOMS);
       setActivities(INITIAL_ACTIVITIES);
       setCommandCount(24);
+      setPresets(INITIAL_PRESETS);
     }
   }, [userKey]);
 
@@ -140,6 +162,12 @@ export const App: React.FC = () => {
       localStorage.setItem(`smarthome_command_count_${userKey}`, commandCount.toString());
     }
   }, [commandCount, userKey]);
+
+  useEffect(() => {
+    if (userKey) {
+      localStorage.setItem(`smarthome_presets_${userKey}`, JSON.stringify(presets));
+    }
+  }, [presets, userKey]);
 
   // Toast Helper
   const addToast = (type: 'success' | 'error' | 'info', title: string, description?: string) => {
@@ -275,6 +303,151 @@ export const App: React.FC = () => {
     );
   };
 
+  // Preset Handlers
+  const handleOpenAddPresetModal = () => {
+    setPresetToEdit(null);
+    setIsPresetModalOpen(true);
+  };
+
+  const handleOpenEditPresetModal = (preset: Preset) => {
+    setPresetToEdit(preset);
+    setIsPresetModalOpen(true);
+  };
+
+  const handleSavePreset = (savedPreset: Preset) => {
+    setPresets((prev) => {
+      const existsIndex = prev.findIndex((p) => p.id === savedPreset.id);
+      if (existsIndex >= 0) {
+        const updated = [...prev];
+        updated[existsIndex] = savedPreset;
+        return updated;
+      }
+      return [savedPreset, ...prev];
+    });
+
+    logActivity(
+      `Preset "${savedPreset.name}" ${presetToEdit ? 'updated' : 'created'}`,
+      (user?.displayName as any) || 'Manual',
+      'scene',
+      true
+    );
+
+    addToast(
+      'success',
+      presetToEdit ? 'Preset Updated' : 'Preset Created',
+      `"${savedPreset.name}" configured with ${savedPreset.devices.length} appliances.`
+    );
+  };
+
+  const handleDeletePreset = (presetId: string) => {
+    const target = presets.find((p) => p.id === presetId);
+    setPresets((prev) => prev.filter((p) => p.id !== presetId));
+    if (activePresetId === presetId) {
+      setActivePresetId(null);
+    }
+
+    if (target) {
+      logActivity(
+        `Preset "${target.name}" removed`,
+        (user?.displayName as any) || 'Manual',
+        'scene',
+        true
+      );
+    }
+
+    addToast('info', 'Preset Deleted', 'The preset configuration has been removed.');
+  };
+
+  const handleActivatePreset = (preset: Preset) => {
+    // 1. Update appliances state
+    setDevices((prev) =>
+      prev.map((d) => {
+        const conf = preset.devices.find((s) => s.deviceId === d.id);
+        if (!conf) return d;
+        const nextState = conf.isOn;
+        const nextValue = conf.value !== undefined ? conf.value : d.value;
+
+        let statusText = nextState ? 'Running' : 'Turned off';
+        if (d.type === 'shades') {
+          statusText = nextState ? 'Open' : 'Closed';
+        } else if (d.type === 'cooktop') {
+          statusText = nextState ? 'Heating • Active' : 'Off';
+        } else if (d.type === 'refrigerator') {
+          statusText = nextState ? 'Eco Mode • 3°C' : 'Standby';
+        } else if (d.type === 'microwave') {
+          statusText = nextState ? 'Heating • 01:30' : 'Standby';
+        } else if (d.type === 'light') {
+          statusText = nextState ? `${nextValue ?? 80}%` : 'Off';
+        } else if (d.type === 'ac') {
+          statusText = nextState ? `Cooling • ${nextValue ?? 20.5}°C` : 'Off';
+        } else if (d.type === 'fan') {
+          statusText = nextState ? (nextValue ? `Speed ${nextValue}` : 'Active') : 'Off';
+        } else if (d.type === 'lock') {
+          statusText = nextState ? 'Locked' : 'Unlocked';
+        }
+
+        return {
+          ...d,
+          isOn: nextState,
+          value: nextValue,
+          statusText,
+        };
+      })
+    );
+
+    // 2. Synchronize room status if preset touches climate or locks
+    const acConf = preset.devices.find((s) => s.deviceId === 'bedroom_ac');
+    if (acConf) {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === 'bedroom'
+            ? {
+                ...r,
+                temperature: acConf.value ?? r.temperature,
+                status: acConf.isOn
+                  ? `Target: ${acConf.value ?? 20.5}°C`
+                  : 'Climate Standby',
+              }
+            : r
+        )
+      );
+    }
+
+    const lockConf = preset.devices.find((s) => s.deviceId === 'front_door_lock');
+    if (lockConf) {
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.id === 'entryway'
+            ? {
+                ...r,
+                isLocked: lockConf.isOn,
+                status: lockConf.isOn
+                  ? 'Locked • Secured just now'
+                  : 'Unlocked • Access granted',
+              }
+            : r
+        )
+      );
+    }
+
+    setActivePresetId(preset.id);
+
+    // 3. Log to activity history
+    logActivity(
+      `Preset "${preset.name}" activated`,
+      (user?.displayName as any) || 'Manual',
+      'scene',
+      true
+    );
+
+    // 4. Show success toast notification
+    addToast(
+      'success',
+      'Preset Activated',
+      `"${preset.name}" applied across ${preset.devices.length} configured appliances.`
+    );
+  };
+
   // 3. Central Command Execution (Voice / Text)
   const handleExecuteCommand = (rawText: string): ParsedCommandResult => {
     const result = parseCommand(rawText, devices);
@@ -376,6 +549,20 @@ export const App: React.FC = () => {
             return d;
           })
         );
+      } else if (result.intent === 'ACTIVATE_SCENE') {
+        const matched = presets.find(
+          (p) =>
+            result.sceneName &&
+            p.name.toLowerCase() === result.sceneName.toLowerCase()
+        ) || presets.find((p) =>
+          rawText.toLowerCase().includes(p.name.toLowerCase())
+        );
+
+        if (matched) {
+          handleActivatePreset(matched);
+        } else if (presets.length > 0) {
+          handleActivatePreset(presets[0]);
+        }
       }
 
       logActivity(
@@ -427,6 +614,8 @@ export const App: React.FC = () => {
     setDevices(INITIAL_DEVICES);
     setRooms(INITIAL_ROOMS);
     setActivities(INITIAL_ACTIVITIES);
+    setPresets(INITIAL_PRESETS);
+    setActivePresetId(null);
     setSelectedRoom('living_room');
     setCommandCount(24);
     setLastParsedResult(null);
@@ -434,6 +623,7 @@ export const App: React.FC = () => {
     localStorage.removeItem(`smarthome_rooms_${userKey}`);
     localStorage.removeItem(`smarthome_activities_${userKey}`);
     localStorage.removeItem(`smarthome_command_count_${userKey}`);
+    localStorage.removeItem(`smarthome_presets_${userKey}`);
     addToast('info', 'Demo State Reset', 'Restored default appliances and audit trails.');
   };
 
@@ -616,16 +806,37 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
+                {/* SECTION: Scene Presets */}
+                <PresetsSection
+                  presets={presets}
+                  activePresetId={activePresetId}
+                  onActivatePreset={handleActivatePreset}
+                  onOpenCreateModal={handleOpenAddPresetModal}
+                  onOpenEditModal={handleOpenEditPresetModal}
+                  onDeletePreset={handleDeletePreset}
+                />
+
                 {/* SECTION 2: Rooms Section */}
                 <div>
-                  <div className="flex items-center justify-between mb-3.5">
-                    <h3 className="text-lg font-medium tracking-tight dark:text-white/90 text-slate-800">
-                      Rooms
-                    </h3>
-                    <div className="flex items-center gap-2 text-xs dark:text-gray-400 text-slate-500">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <span>Real-time occupancy & sensor status</span>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3.5">
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-lg font-medium tracking-tight dark:text-white/90 text-slate-800">
+                        Rooms
+                      </h3>
+                      <div className="hidden sm:flex items-center gap-2 text-xs dark:text-gray-400 text-slate-500">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        <span>Real-time occupancy & sensor status</span>
+                      </div>
                     </div>
+
+                    <button
+                      onClick={handleOpenAddPresetModal}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-md shadow-purple-500/25 hover:shadow-purple-500/40 transition-all duration-200 active:scale-95 border border-purple-400/30 cursor-pointer"
+                      aria-label="Add Preset"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ Add Preset</span>
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
@@ -709,6 +920,20 @@ export const App: React.FC = () => {
       <ProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+      />
+
+      {/* Automation Preset Modal (Create and Edit) */}
+      <PresetModal
+        isOpen={isPresetModalOpen}
+        onClose={() => {
+          setIsPresetModalOpen(false);
+          setPresetToEdit(null);
+        }}
+        onSavePreset={handleSavePreset}
+        existingPresets={presets}
+        presetToEdit={presetToEdit}
+        devices={devices}
+        rooms={rooms}
       />
 
       {/* Dynamic Toast Feedback Container */}

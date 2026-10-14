@@ -160,6 +160,17 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   } else if (preprocessed.includes('status') || preprocessed.includes('check')) {
     intent = 'QUERY_STATUS';
     confidence = 0.85;
+  } else if (
+    preprocessed.includes('movie night') ||
+    preprocessed.includes('good morning') ||
+    preprocessed.includes('study mode') ||
+    preprocessed.includes('away mode') ||
+    preprocessed.includes('good night') ||
+    preprocessed.includes('preset') ||
+    preprocessed.includes('scene')
+  ) {
+    intent = 'ACTIVATE_SCENE';
+    confidence = 0.96;
   }
 
   stages.push({
@@ -177,6 +188,21 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   let targetDeviceType: DeviceType | 'all' | undefined = undefined;
   let specificDeviceId: string | undefined = undefined;
   let extractedValue: number | undefined = undefined;
+  let sceneName: string | undefined = undefined;
+
+  if (intent === 'ACTIVATE_SCENE') {
+    if (preprocessed.includes('movie night')) sceneName = 'Movie Night';
+    else if (preprocessed.includes('good morning')) sceneName = 'Good Morning';
+    else if (preprocessed.includes('study mode') || preprocessed.includes('study')) sceneName = 'Study Mode';
+    else if (preprocessed.includes('away mode') || preprocessed.includes('away')) sceneName = 'Away Mode';
+    else if (preprocessed.includes('good night') || preprocessed.includes('sleep mode')) sceneName = 'Good Night';
+    else {
+      const match = preprocessed.match(/(?:preset|scene)\s+([a-z0-9\s]+)/i) || preprocessed.match(/activate\s+([a-z0-9\s]+)/i);
+      if (match && match[1]) {
+        sceneName = match[1].trim();
+      }
+    }
+  }
 
   // Room identification
   if (preprocessed.includes('living room')) targetRoom = 'living_room';
@@ -332,6 +358,21 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
       } else {
         affectedDeviceIds.push(...acDevices.map(d => d.id));
       }
+    }
+  } else if (intent === 'ACTIVATE_SCENE') {
+    validationSuccess = true;
+    if (sceneName === 'Movie Night') {
+      affectedDeviceIds.push('living_room_tv', 'living_room_main', 'living_room_shades');
+    } else if (sceneName === 'Good Morning') {
+      affectedDeviceIds.push('living_room_main', 'bedroom_curtains', 'bedroom_ac', 'kitchen_light');
+    } else if (sceneName === 'Study Mode') {
+      affectedDeviceIds.push('office_lights', 'reading_lamp', 'living_room_fan');
+    } else if (sceneName === 'Away Mode') {
+      affectedDeviceIds.push('front_door_lock', 'living_room_main', 'bedroom_ceiling_light', 'kitchen_light');
+    } else if (sceneName === 'Good Night') {
+      affectedDeviceIds.push('front_door_lock', 'bedroom_bedside_lamp', 'bedroom_ac');
+    } else {
+      affectedDeviceIds.push(...currentDevices.slice(0, 4).map(d => d.id));
     }
   } else {
     // Targeted command
@@ -494,6 +535,11 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
           feedbackMessage = `${targetRoom ? targetRoom.replace('_', ' ') : 'Appliance'} turned off.`;
         }
         break;
+      case 'ACTIVATE_SCENE':
+        feedbackMessage = sceneName 
+          ? `Activated "${sceneName}" preset scene.`
+          : 'Automation preset scene applied.';
+        break;
       default:
         feedbackMessage = `Command executed successfully.`;
         break;
@@ -518,6 +564,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     targetDeviceType,
     specificDeviceId,
     extractedValue,
+    sceneName,
     confidence,
     validationSuccess,
     validationError,

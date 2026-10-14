@@ -1,4 +1,4 @@
-import type { Device, Room, ActivityLog } from '../types';
+import type { Device, Room, ActivityLog, Preset } from '../types';
 
 export const INITIAL_DEVICES: Device[] = [
   {
@@ -339,3 +339,106 @@ export const HOURLY_ENERGY_DATA = [
   { time: '20:00', watts: 940, lights: 190, hvac: 550, other: 200 },
   { time: '22:00', watts: 460, lights: 90, hvac: 290, other: 80 },
 ];
+
+export const INITIAL_PRESETS: Preset[] = [
+  {
+    id: 'preset_good_morning',
+    name: 'Good Morning',
+    description: 'Opens living and bedroom shades, sets gentle morning lighting, and readies the kitchen.',
+    icon: 'Sun',
+    devices: [
+      { deviceId: 'living_room_main', isOn: true, value: 80 },
+      { deviceId: 'reading_lamp', isOn: false },
+      { deviceId: 'living_room_shades', isOn: true },
+      { deviceId: 'living_room_tv', isOn: false },
+      { deviceId: 'bedroom_curtains', isOn: true },
+      { deviceId: 'bedroom_ceiling_light', isOn: true, value: 70 },
+      { deviceId: 'bedroom_ac', isOn: true, value: 23 },
+      { deviceId: 'kitchen_light', isOn: true, value: 85 },
+      { deviceId: 'kitchen_counter_light', isOn: true, value: 80 }
+    ],
+    createdAt: '2026-10-14T07:00:00Z',
+    isCustom: false
+  },
+  {
+    id: 'preset_movie_night',
+    name: 'Movie Night',
+    description: 'Turns on the living room 4K TV, dims ambient lighting to 15%, and closes window shades.',
+    icon: 'Film',
+    devices: [
+      { deviceId: 'living_room_tv', isOn: true },
+      { deviceId: 'living_room_main', isOn: true, value: 15 },
+      { deviceId: 'reading_lamp', isOn: false },
+      { deviceId: 'living_room_shades', isOn: false },
+      { deviceId: 'living_room_fan', isOn: true, value: 1 },
+      { deviceId: 'bedroom_ceiling_light', isOn: false },
+      { deviceId: 'kitchen_light', isOn: false }
+    ],
+    createdAt: '2026-10-14T19:30:00Z',
+    isCustom: false
+  },
+  {
+    id: 'preset_study_mode',
+    name: 'Study Mode',
+    description: 'Max focus illumination in office, reading lamp on, active ventilation, and entertainment silenced.',
+    icon: 'BookOpen',
+    devices: [
+      { deviceId: 'office_lights', isOn: true, value: 100 },
+      { deviceId: 'reading_lamp', isOn: true, value: 90 },
+      { deviceId: 'living_room_fan', isOn: true, value: 2 },
+      { deviceId: 'living_room_tv', isOn: false },
+      { deviceId: 'bedroom_ac', isOn: true, value: 21.5 }
+    ],
+    createdAt: '2026-10-14T14:00:00Z',
+    isCustom: false
+  },
+  {
+    id: 'preset_away_mode',
+    name: 'Away Mode',
+    description: 'Secures front deadbolt, shuts down all lighting and appliances for total security and eco savings.',
+    icon: 'Shield',
+    devices: [
+      { deviceId: 'living_room_main', isOn: false },
+      { deviceId: 'reading_lamp', isOn: false },
+      { deviceId: 'living_room_tv', isOn: false },
+      { deviceId: 'living_room_fan', isOn: false },
+      { deviceId: 'living_room_shades', isOn: false },
+      { deviceId: 'bedroom_ceiling_light', isOn: false },
+      { deviceId: 'bedroom_bedside_lamp', isOn: false },
+      { deviceId: 'bedroom_ac', isOn: false },
+      { deviceId: 'bedroom_fan', isOn: false },
+      { deviceId: 'bedroom_curtains', isOn: false },
+      { deviceId: 'kitchen_light', isOn: false },
+      { deviceId: 'kitchen_counter_light', isOn: false },
+      { deviceId: 'kitchen_cooktop', isOn: false },
+      { deviceId: 'kitchen_microwave', isOn: false },
+      { deviceId: 'office_lights', isOn: false },
+      { deviceId: 'front_door_lock', isOn: true }
+    ],
+    createdAt: '2026-10-14T09:00:00Z',
+    isCustom: false
+  },
+  {
+    id: 'preset_good_night',
+    name: 'Good Night',
+    description: 'Locks entryways, dims bedside lamp to nightlight, closes curtains, and optimizes cool sleeping climate.',
+    icon: 'Moon',
+    devices: [
+      { deviceId: 'living_room_main', isOn: false },
+      { deviceId: 'reading_lamp', isOn: false },
+      { deviceId: 'living_room_tv', isOn: false },
+      { deviceId: 'living_room_shades', isOn: false },
+      { deviceId: 'bedroom_ceiling_light', isOn: false },
+      { deviceId: 'bedroom_bedside_lamp', isOn: true, value: 10 },
+      { deviceId: 'bedroom_curtains', isOn: false },
+      { deviceId: 'bedroom_ac', isOn: true, value: 20 },
+      { deviceId: 'bedroom_fan', isOn: true, value: 1 },
+      { deviceId: 'kitchen_light', isOn: false },
+      { deviceId: 'kitchen_counter_light', isOn: false },
+      { deviceId: 'front_door_lock', isOn: true }
+    ],
+    createdAt: '2026-10-14T23:00:00Z',
+    isCustom: false
+  }
+];
+

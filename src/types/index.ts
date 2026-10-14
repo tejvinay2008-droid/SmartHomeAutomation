@@ -80,6 +80,7 @@ export interface ParsedCommandResult {
   targetDeviceType?: DeviceType | 'all';
   specificDeviceId?: string;
   extractedValue?: number;
+  sceneName?: string;
   confidence: number;
   validationSuccess: boolean;
   validationError?: string;
@@ -105,4 +106,20 @@ export interface SystemStats {
   activeDevices: number;
   processedCommands: number;
   currentPowerWatts: number;
+}
+
+export interface DevicePresetSetting {
+  deviceId: string;
+  isOn: boolean;
+  value?: number; // brightness % (0-100), temp °C (16-30), fan speed (1-3)
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  description?: string;
+  icon: string; // e.g. 'Sun', 'Moon', 'Film', 'BookOpen', 'Shield', 'Coffee', 'Sparkles', 'Home', 'Tv', 'Zap'
+  devices: DevicePresetSetting[];
+  createdAt?: string;
+  isCustom?: boolean;
 }
