@@ -1,5 +1,15 @@
 import type { Device, ParsedCommandResult, PipelineStage, RoomId, DeviceType, IntentType } from '../types';
 
+export const WAKE_WORD_REGEX = /(?:^|\b)(?:hey\s+)?sofia\b/i;
+
+export function hasWakeWord(text: string): boolean {
+  return WAKE_WORD_REGEX.test(text.trim());
+}
+
+export function extractCommandAfterWakeWord(text: string): string {
+  return text.trim().replace(/(?:^|\b)(?:hey\s+)?sofia[\s,.:!?-]*/i, '').trim();
+}
+
 // Helper to normalize number words to digits if spoken (e.g. "twenty two" -> 22)
 function parseSpokenNumbers(text: string): string {
   const numberWords: Record<string, string> = {
@@ -27,19 +37,23 @@ function parseSpokenNumbers(text: string): string {
   return normalized;
 }
 
-export function parseCommand(rawTranscript: string, currentDevices: Device[]): ParsedCommandResult {
+export function parseCommand(
+  rawTranscript: string, 
+  currentDevices: Device[], 
+  options: { requireWakeWord?: boolean } = { requireWakeWord: true }
+): ParsedCommandResult {
   const stages: PipelineStage[] = [];
+  const cleanedRaw = rawTranscript.trim();
 
   // STAGE 1: Speech-to-Text Reception
-  const cleanedRaw = rawTranscript.trim();
   stages.push({
     step: 1,
     name: 'Speech-to-Text Reception',
-    description: 'Received raw audio transcription stream from Web Speech API',
+    description: 'Received raw audio transcription stream from Web Speech API / input channel',
     input: rawTranscript,
     output: cleanedRaw,
     status: cleanedRaw ? 'success' : 'error',
-    details: { characterCount: cleanedRaw.length, source: 'WebSpeechAPI / FallbackInput' }
+    details: { characterCount: cleanedRaw.length, source: 'SofiaVoiceEngine' }
   });
 
   if (!cleanedRaw) {
@@ -47,6 +61,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
       rawTranscript: '',
       preprocessedText: '',
       intent: 'UNKNOWN',
+      wakeWordDetected: false,
       confidence: 0,
       validationSuccess: false,
       validationError: 'Empty speech input received.',
@@ -56,8 +71,62 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     };
   }
 
-  // STAGE 2: Text Preprocessing & Normalization
-  let preprocessed = cleanedRaw.toLowerCase();
+  // STAGE 2: Wake-Word Verification & Addressing Check
+  const requireWakeWord = options.requireWakeWord !== false;
+  const wakeWordPresent = hasWakeWord(cleanedRaw);
+
+  stages.push({
+    step: 2,
+    name: 'Wake-Word Verification & Addressing Check',
+    description: 'Verifies addressing prerequisite: commands must address SOFIA by saying "Sofia" or "Hey Sofia"',
+    input: cleanedRaw,
+    output: wakeWordPresent 
+      ? 'Wake word verified ("Sofia" / "Hey Sofia" detected). Command authorized.'
+      : 'Wake word missing. Addressing requirement failed.',
+    status: (!requireWakeWord || wakeWordPresent) ? 'success' : 'error',
+    details: { 
+      wakeWordPresent, 
+      enforced: requireWakeWord, 
+      requiredPrefix: 'Sofia or Hey Sofia' 
+    }
+  });
+
+  if (requireWakeWord && !wakeWordPresent) {
+    return {
+      rawTranscript: cleanedRaw,
+      preprocessedText: cleanedRaw,
+      intent: 'UNKNOWN',
+      wakeWordDetected: false,
+      confidence: 0,
+      validationSuccess: false,
+      validationError: 'Start your command with Sofia.',
+      feedbackMessage: 'Start your command with Sofia.',
+      affectedDeviceIds: [],
+      pipelineStages: stages
+    };
+  }
+
+  // Extract command portion after wake word
+  const commandText = extractCommandAfterWakeWord(cleanedRaw);
+
+  if (!commandText) {
+    // User only said "Sofia" or "Hey Sofia"
+    return {
+      rawTranscript: cleanedRaw,
+      preprocessedText: '',
+      intent: 'UNKNOWN',
+      wakeWordDetected: true,
+      confidence: 1.0,
+      validationSuccess: false,
+      validationError: 'Awaiting your command. Say an appliance instruction.',
+      feedbackMessage: "Yes? I'm listening...",
+      affectedDeviceIds: [],
+      pipelineStages: stages
+    };
+  }
+
+  // STAGE 3: Text Preprocessing & Normalization
+  let preprocessed = commandText.toLowerCase();
   preprocessed = preprocessed.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, ' ');
   preprocessed = parseSpokenNumbers(preprocessed);
   preprocessed = preprocessed.replace(/\s+/g, ' ').trim();
@@ -89,10 +158,10 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     .replace(/\bdoor\b/g, 'entryway door');
 
   stages.push({
-    step: 2,
+    step: 3,
     name: 'Text Preprocessing & Normalization',
     description: 'Case folding, punctuation stripping, synonym mapping, and tokenization',
-    input: cleanedRaw,
+    input: commandText,
     output: preprocessed,
     details: {
       tokens: preprocessed.split(' '),
@@ -101,7 +170,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     status: 'success'
   });
 
-  // STAGE 3: Intent Classification
+  // STAGE 4: Intent Classification
   let intent: IntentType = 'UNKNOWN';
   let confidence = 0.85;
 
@@ -174,7 +243,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   }
 
   stages.push({
-    step: 3,
+    step: 4,
     name: 'Intent Classification',
     description: 'Rule-based intent inference engine matching semantics & grammatical patterns',
     input: preprocessed,
@@ -183,7 +252,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     details: { intent, confidenceScore: confidence }
   });
 
-  // STAGE 4: Slot & Entity Identification
+  // STAGE 5: Slot & Entity Identification
   let targetRoom: RoomId | 'all' | undefined = undefined;
   let targetDeviceType: DeviceType | 'all' | undefined = undefined;
   let specificDeviceId: string | undefined = undefined;
@@ -260,11 +329,14 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   } else if (preprocessed.includes('lights') || preprocessed.includes('light') || preprocessed.includes('lamp') || preprocessed.includes('ceiling')) {
     targetDeviceType = 'light';
     if (targetRoom === 'bedroom' && !preprocessed.includes('all')) {
-      if (preprocessed.includes('ceiling')) specificDeviceId = 'bedroom_ceiling_light';
-      else if (preprocessed.includes('lamp')) specificDeviceId = 'bedroom_bedside_lamp';
+      if (preprocessed.includes('lamp')) specificDeviceId = 'bedroom_bedside_lamp';
+      else specificDeviceId = 'bedroom_ceiling_light';
     } else if (targetRoom === 'kitchen' && !preprocessed.includes('all')) {
       if (preprocessed.includes('counter')) specificDeviceId = 'kitchen_counter_light';
       else specificDeviceId = 'kitchen_light';
+    } else if (targetRoom === 'living_room' && !preprocessed.includes('all')) {
+      if (preprocessed.includes('reading') || preprocessed.includes('lamp')) specificDeviceId = 'reading_lamp';
+      else specificDeviceId = 'living_room_main';
     }
   } else if (preprocessed.includes('fan') || preprocessed.includes('circulator')) {
     targetDeviceType = 'fan';
@@ -273,8 +345,12 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     else if (targetRoom === 'living_room') specificDeviceId = 'living_room_fan';
   } else if (preprocessed.includes('ac') || preprocessed.includes('thermostat')) {
     targetDeviceType = 'ac';
-    specificDeviceId = 'bedroom_ac';
-    targetRoom = 'bedroom';
+    if (targetRoom === 'living_room') {
+      specificDeviceId = 'living_room_ac';
+    } else {
+      specificDeviceId = 'bedroom_ac';
+      if (!targetRoom) targetRoom = 'bedroom';
+    }
   } else if (preprocessed.includes('tv')) {
     targetDeviceType = 'tv';
     specificDeviceId = 'living_room_tv';
@@ -307,7 +383,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   }
 
   stages.push({
-    step: 4,
+    step: 5,
     name: 'Slot & Entity Identification',
     description: 'Extracted spatial targets, appliance categories, and numerical parameters',
     input: preprocessed,
@@ -321,14 +397,14 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     details: { targetRoom, targetDeviceType, specificDeviceId, extractedValue }
   });
 
-  // STAGE 5: Command Validation
+  // STAGE 6: Command Validation
   let validationSuccess = true;
   let validationError: string | undefined = undefined;
   const affectedDeviceIds: string[] = [];
 
   if (intent === 'UNKNOWN') {
     validationSuccess = false;
-    validationError = `Unrecognized command "${cleanedRaw}". Supported actions: Turn On/Off appliances, Adjust Bedroom AC, Open/Close Curtains, or Room Controls.`;
+    validationError = `Unrecognized command "${commandText}". Please repeat your command (e.g. "turn on bedroom light", "set AC to 22 degrees", "turn off all lights").`;
   } else if (intent === 'ALL_DEVICES_OFF') {
     if (targetRoom && targetRoom !== 'all') {
       const roomDevices = currentDevices.filter(d => d.room === targetRoom);
@@ -346,12 +422,16 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   } else if (intent === 'SET_TEMPERATURE') {
     if (extractedValue === undefined) {
       validationSuccess = false;
-      validationError = 'Target temperature missing in speech command (e.g. "Set bedroom AC to 22 degrees").';
+      validationError = 'Target temperature missing in speech command (e.g. "Sofia, set the bedroom AC to 22 degrees").';
     } else if (extractedValue < 16 || extractedValue > 30) {
       validationSuccess = false;
       validationError = `Requested temperature (${extractedValue}°C) is outside safe climate range [16°C - 30°C].`;
     } else {
-      const acDevices = currentDevices.filter(d => d.type === 'ac' && (!targetRoom || d.room === targetRoom));
+      let acDevices = currentDevices.filter(d => d.type === 'ac' && (!targetRoom || d.room === targetRoom));
+      if (acDevices.length === 0) {
+        // Fallback to any AC device available in the house
+        acDevices = currentDevices.filter(d => d.type === 'ac');
+      }
       if (acDevices.length === 0) {
         validationSuccess = false;
         validationError = `No AC unit found in ${targetRoom || 'home'}.`;
@@ -401,7 +481,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   }
 
   stages.push({
-    step: 5,
+    step: 6,
     name: 'Command Validation & Semantic Check',
     description: 'Verified device registry compatibility, range boundaries, and presence',
     input: { intent, targetRoom, targetDeviceType, affectedCandidateCount: affectedDeviceIds.length },
@@ -410,9 +490,9 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     details: { validated: validationSuccess, affectedCount: affectedDeviceIds.length, error: validationError }
   });
 
-  // STAGE 6: Simulated Appliance Control Plan
+  // STAGE 7: Simulated Appliance Control Plan
   stages.push({
-    step: 6,
+    step: 7,
     name: 'Simulated Appliance Control Plan',
     description: 'Hardware instruction abstraction dispatched to device state store',
     input: affectedDeviceIds,
@@ -421,7 +501,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     details: { affectedDeviceIds, statePayload: { intent, extractedValue } }
   });
 
-  // STAGE 7: Feedback & Activity Logging
+  // STAGE 8: Feedback & Activity Logging
   let feedbackMessage = '';
   if (!validationSuccess) {
     feedbackMessage = validationError || 'Unable to execute command.';
@@ -443,7 +523,11 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
           : 'All devices turned off.';
         break;
       case 'SET_TEMPERATURE':
-        feedbackMessage = `Bedroom AC set to ${extractedValue}°C.`;
+        if (targetRoom === 'living_room' || specificDeviceId === 'living_room_ac') {
+          feedbackMessage = `Living room AC set to ${extractedValue}°C.`;
+        } else {
+          feedbackMessage = `Bedroom AC set to ${extractedValue}°C.`;
+        }
         break;
       case 'OPEN_SHADES':
         feedbackMessage = targetRoom === 'bedroom' || specificDeviceId === 'bedroom_curtains'
@@ -462,10 +546,10 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
         feedbackMessage = 'Front door locked and secured.';
         break;
       case 'TURN_ON':
-        if (specificDeviceId === 'bedroom_bedside_lamp') {
+        if (specificDeviceId === 'bedroom_ceiling_light' || (targetRoom === 'bedroom' && targetDeviceType === 'light')) {
+          feedbackMessage = 'Bedroom light turned on successfully.';
+        } else if (specificDeviceId === 'bedroom_bedside_lamp') {
           feedbackMessage = 'Bedroom bedside lamp turned on.';
-        } else if (specificDeviceId === 'bedroom_ceiling_light') {
-          feedbackMessage = 'Bedroom ceiling light turned on.';
         } else if (specificDeviceId === 'kitchen_counter_light') {
           feedbackMessage = 'Kitchen counter lights turned on.';
         } else if (specificDeviceId === 'kitchen_exhaust_fan') {
@@ -482,7 +566,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
             : targetRoom === 'kitchen' 
             ? 'Kitchen lights turned on.' 
             : targetRoom === 'bedroom'
-            ? 'Bedroom lights turned on.'
+            ? 'Bedroom light turned on successfully.'
             : 'Lights turned on.';
         } else if (targetDeviceType === 'fan') {
           feedbackMessage = targetRoom === 'bedroom' 
@@ -499,10 +583,10 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
         }
         break;
       case 'TURN_OFF':
-        if (specificDeviceId === 'bedroom_bedside_lamp') {
+        if (specificDeviceId === 'bedroom_ceiling_light' || (targetRoom === 'bedroom' && targetDeviceType === 'light')) {
+          feedbackMessage = 'Bedroom light turned off.';
+        } else if (specificDeviceId === 'bedroom_bedside_lamp') {
           feedbackMessage = 'Bedroom bedside lamp turned off.';
-        } else if (specificDeviceId === 'bedroom_ceiling_light') {
-          feedbackMessage = 'Bedroom ceiling light turned off.';
         } else if (specificDeviceId === 'kitchen_counter_light') {
           feedbackMessage = 'Kitchen counter lights turned off.';
         } else if (specificDeviceId === 'kitchen_exhaust_fan') {
@@ -547,7 +631,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
   }
 
   stages.push({
-    step: 7,
+    step: 8,
     name: 'Feedback & Activity Logging',
     description: 'User notification synthesized and logged to Recent Activity audit trail',
     input: { feedbackMessage, validationSuccess },
@@ -560,6 +644,7 @@ export function parseCommand(rawTranscript: string, currentDevices: Device[]): P
     rawTranscript: cleanedRaw,
     preprocessedText: preprocessed,
     intent,
+    wakeWordDetected: true,
     targetRoom,
     targetDeviceType,
     specificDeviceId,

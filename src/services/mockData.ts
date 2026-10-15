@@ -56,6 +56,18 @@ export const INITIAL_DEVICES: Device[] = [
     statusText: 'Active • 4K HDMI 1'
   },
   {
+    id: 'living_room_ac',
+    name: 'Living Room AC',
+    room: 'living_room',
+    type: 'ac',
+    isOn: true,
+    value: 22,
+    unit: '°C',
+    color: '#38bdf8',
+    canSlide: true,
+    statusText: 'Cooling • 22°C'
+  },
+  {
     id: 'bedroom_ceiling_light',
     name: 'Bedroom Ceiling',
     room: 'bedroom',
@@ -203,6 +215,14 @@ export const INITIAL_DEVICES: Device[] = [
 ];
 
 export const INITIAL_ROOMS: Room[] = [
+  {
+    id: 'living_room',
+    name: 'Living Room',
+    status: 'Climate Controlled • Optimal',
+    dotColor: 'purple',
+    subtext: 'Target 22.0°C',
+    temperature: 22.0
+  },
   {
     id: 'office',
     name: 'Office',

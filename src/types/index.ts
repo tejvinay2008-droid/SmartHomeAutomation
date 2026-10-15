@@ -72,10 +72,19 @@ export interface PipelineStage {
   details?: Record<string, any>;
 }
 
+export type SofiaVoiceState = 
+  | 'DISABLED'
+  | 'WAITING_FOR_WAKE_WORD'
+  | 'WAKE_WORD_DETECTED'
+  | 'PROCESSING'
+  | 'SUCCESS'
+  | 'ERROR';
+
 export interface ParsedCommandResult {
   rawTranscript: string;
   preprocessedText: string;
   intent: IntentType;
+  wakeWordDetected?: boolean;
   targetRoom?: RoomId | 'all';
   targetDeviceType?: DeviceType | 'all';
   specificDeviceId?: string;

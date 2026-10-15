@@ -22,6 +22,8 @@ import { RoomCard } from './components/RoomCard';
 import { RecentActivity } from './components/RecentActivity';
 import { EnergyAnalytics } from './components/EnergyAnalytics';
 import { VoiceModal } from './components/VoiceModal';
+import { SofiaVoicePanel } from './components/SofiaVoicePanel';
+import { SofiaVoiceProvider } from './context/SofiaVoiceContext';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { AuthModal } from './components/auth/AuthModal';
@@ -517,7 +519,11 @@ export const App: React.FC = () => {
           )
         );
         setRooms((prev) =>
-          prev.map((r) => (r.id === 'bedroom' ? { ...r, temperature: result.extractedValue, status: `Target: ${result.extractedValue}°C` } : r))
+          prev.map((r) =>
+            (result.targetRoom && r.id === result.targetRoom) || (!result.targetRoom && r.id === 'bedroom')
+              ? { ...r, temperature: result.extractedValue, status: `Target: ${result.extractedValue}°C` }
+              : r
+          )
         );
       } else if (result.intent === 'TURN_ON') {
         setDevices((prev) =>
@@ -576,14 +582,18 @@ export const App: React.FC = () => {
       addToast('success', 'Voice Command Executed', result.feedbackMessage);
     } else {
       logActivity(
-        `Failed command: "${rawText.slice(0, 30)}..."`,
+        result.feedbackMessage || `Rejected: "${rawText.slice(0, 30)}..."`,
         'Voice Command',
         'scene',
         false,
         rawText
       );
 
-      addToast('error', 'Command Parse Warning', result.feedbackMessage);
+      addToast(
+        result.feedbackMessage === 'Start your command with Sofia.' ? 'info' : 'error',
+        'Voice Command Notice',
+        result.feedbackMessage
+      );
     }
 
     return result;
@@ -662,7 +672,8 @@ export const App: React.FC = () => {
     (selectedRoom === 'living_room' ? 'Living Room' : selectedRoom === 'bedroom' ? 'Bedroom' : selectedRoom === 'kitchen' ? 'Kitchen' : 'Room');
 
   return (
-    <div className={`min-h-screen transition-colors duration-300 flex flex-col justify-between relative selection:bg-purple-600 selection:text-white ${
+    <SofiaVoiceProvider onExecuteCommand={handleExecuteCommand}>
+      <div className={`min-h-screen transition-colors duration-300 flex flex-col justify-between relative selection:bg-purple-600 selection:text-white ${
       theme === 'dark' ? 'bg-[#08090d] text-gray-100' : 'bg-slate-50 text-slate-800'
     }`}>
       {/* Ambient background glows */}
@@ -774,6 +785,9 @@ export const App: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
               {/* Left 8 Columns */}
               <div className="lg:col-span-8 space-y-7">
+                {/* 1. PRIMARY HOMEPAGE FEATURE: TALK TO SOFIA VOICE CONTROL PANEL */}
+                <SofiaVoicePanel />
+
                 {/* 2D REALISTIC ROOM INTERIOR SIMULATION */}
                 <InteractiveRoomSimulation
                   devices={devices}
@@ -939,6 +953,7 @@ export const App: React.FC = () => {
       {/* Dynamic Toast Feedback Container */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
+  </SofiaVoiceProvider>
   );
 };
 
